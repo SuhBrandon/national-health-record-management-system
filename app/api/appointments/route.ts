@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
   try {
     const patientId = req.nextUrl.searchParams.get('patientId');
     const doctorId = req.nextUrl.searchParams.get('doctorId');
+    const status = req.nextUrl.searchParams.get('status');
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -15,14 +16,22 @@ export async function GET(req: NextRequest) {
 
     let query = adminClient
       .from('appointments')
-      .select('*')
-      .order('appointment_date', { ascending: true });
+      .select(`
+        *,
+        medical_center:medical_center_id (id, name, address, city, phone),
+        patient:patient_id (id, user_id),
+        doctor:doctor_id (id, user_id)
+      `)
+      .order('appointment_date', { ascending: false });
 
     if (patientId) {
       query = query.eq('patient_id', patientId);
     }
     if (doctorId) {
       query = query.eq('doctor_id', doctorId);
+    }
+    if (status) {
+      query = query.eq('status', status);
     }
 
     const { data: appointments, error } = await query;
@@ -39,8 +48,23 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { patientId, doctorId, appointmentDate, reason, notes } =
-      await req.json();
+    const {
+      patientId,
+      doctorId,
+      medicalCenterId,
+      appointmentDate,
+      reasonForVisit,
+      consultationType,
+      durationMinutes,
+      notes,
+    } = await req.json();
+
+    if (!patientId || !doctorId || !medicalCenterId || !appointmentDate) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -51,10 +75,13 @@ export async function POST(req: NextRequest) {
       .insert({
         patient_id: patientId,
         doctor_id: doctorId,
+        medical_center_id: medicalCenterId,
         appointment_date: appointmentDate,
-        status: 'scheduled',
-        reason,
+        reason_for_visit: reasonForVisit,
+        consultation_type: consultationType || 'in-person',
+        duration_minutes: durationMinutes || 30,
         notes,
+        status: 'pending',
       })
       .select()
       .single();
@@ -71,20 +98,26 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
-    const { id, status, appointmentDate, notes } = await req.json();
+    const { appointmentId, ...updateData } = await req.json();
+
+    if (!appointmentId) {
+      return NextResponse.json(
+        { error: 'Appointment ID required' },
+        { status: 400 }
+      );
+    }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const updateData: any = { status };
-    if (appointmentDate) updateData.appointment_date = appointmentDate;
-    if (notes) updateData.notes = notes;
-
     const { data: appointment, error } = await adminClient
       .from('appointments')
-      .update(updateData)
-      .eq('id', id)
+      .update({
+        ...updateData,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', appointmentId)
       .select()
       .single();
 
@@ -97,3 +130,34 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { appointmentId } = await req.json();
+
+    if (!appointmentId) {
+      return NextResponse.json(
+        { error: 'Appointment ID required' },
+        { status: 400 }
+      );
+    }
+
+    const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const { error } = await adminClient
+      .from('appointments')
+      .delete()
+      .eq('id', appointmentId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
