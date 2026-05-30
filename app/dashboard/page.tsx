@@ -9,25 +9,38 @@ export default function DashboardPage() {
   const router = useRouter();
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const checkUserAndRedirect = async () => {
       try {
-        const { data: { user }, error } = await supabase.auth.getUser();
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-        if (error || !user) {
+        if (authError || !user) {
           router.push('/auth/login');
           return;
         }
 
-        // Get user profile with role
-        const { data: profile } = await supabase
+        // Get user profile with role - improved query
+        const { data: userProfile, error: profileError } = await supabase
           .from('users')
-          .select('role_id, roles:role_id (name)')
+          .select('role_id')
           .eq('id', user.id)
           .single();
 
-        const roleName = profile?.roles?.name;
+        if (profileError || !userProfile) {
+          setError('Could not load user profile');
+          return;
+        }
+
+        // Get role name separately
+        const { data: roleData } = await supabase
+          .from('roles')
+          .select('name')
+          .eq('id', userProfile.role_id)
+          .single();
+
+        const roleName = roleData?.name;
 
         // Route to appropriate dashboard based on role
         switch (roleName) {
@@ -59,7 +72,7 @@ export default function DashboardPage() {
             router.push('/auth/login');
         }
       } catch (err) {
-        router.push('/auth/login');
+        setError('An error occurred');
       } finally {
         setLoading(false);
       }
@@ -67,6 +80,22 @@ export default function DashboardPage() {
 
     checkUserAndRedirect();
   }, [supabase, router]);
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center text-red-600">
+          <p>{error}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center">

@@ -24,20 +24,27 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signInError, data } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (signInError) {
         setError(signInError.message);
+        setLoading(false);
         return;
       }
 
-      router.push('/dashboard');
-    } catch (err) {
-      setError('An unexpected error occurred');
-    } finally {
+      // Wait for session to be established
+      if (data?.session) {
+        // Session created successfully, redirect
+        router.push('/dashboard');
+      } else {
+        // No session, ask user to confirm email
+        router.push('/auth/sign-up-success');
+      }
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred');
       setLoading(false);
     }
   };
